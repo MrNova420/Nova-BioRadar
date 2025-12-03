@@ -2,8 +2,15 @@ package com.bioradar.core.di
 
 import android.content.Context
 import androidx.room.Room
+import com.bioradar.core.managers.AlertManager
+import com.bioradar.core.managers.LocationManager
+import com.bioradar.core.managers.PowerManager
 import com.bioradar.data.database.*
 import com.bioradar.data.repository.*
+import com.bioradar.ml.FeatureExtractor
+import com.bioradar.ml.PresenceClassifier
+import com.bioradar.modes.PerimeterGuard
+import com.bioradar.modes.TripwireGuard
 import com.bioradar.security.PanicWipe
 import com.bioradar.security.SecureStorage
 import com.bioradar.sensor.drivers.AudioSonarDriver
@@ -159,5 +166,62 @@ object AppModule {
         secureStorage: SecureStorage
     ): PanicWipe {
         return PanicWipe(context, secureStorage)
+    }
+    
+    // Managers
+    @Provides
+    @Singleton
+    fun provideAlertManager(
+        @ApplicationContext context: Context
+    ): AlertManager {
+        return AlertManager(context)
+    }
+    
+    @Provides
+    @Singleton
+    fun providePowerManager(
+        @ApplicationContext context: Context
+    ): PowerManager {
+        return PowerManager(context)
+    }
+    
+    @Provides
+    @Singleton
+    fun provideLocationManager(): LocationManager {
+        return LocationManager()
+    }
+    
+    // ML
+    @Provides
+    @Singleton
+    fun providePresenceClassifier(
+        @ApplicationContext context: Context
+    ): PresenceClassifier {
+        return PresenceClassifier(context)
+    }
+    
+    @Provides
+    @Singleton
+    fun provideFeatureExtractor(): FeatureExtractor {
+        return FeatureExtractor()
+    }
+    
+    // Modes
+    @Provides
+    @Singleton
+    fun providePerimeterGuard(
+        fusionEngine: FusionEngine,
+        alertManager: AlertManager,
+        logRepository: DetectionLogRepository
+    ): PerimeterGuard {
+        return PerimeterGuard(fusionEngine, alertManager, logRepository)
+    }
+    
+    @Provides
+    @Singleton
+    fun provideTripwireGuard(
+        perimeterGuard: PerimeterGuard
+    ): TripwireGuard {
+        return TripwireGuard(perimeterGuard)
     }
 }
