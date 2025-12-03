@@ -1,6 +1,9 @@
 package com.bioradar.core.di
 
 import android.content.Context
+import androidx.room.Room
+import com.bioradar.data.database.*
+import com.bioradar.data.repository.*
 import com.bioradar.security.PanicWipe
 import com.bioradar.security.SecureStorage
 import com.bioradar.sensor.drivers.AudioSonarDriver
@@ -8,6 +11,9 @@ import com.bioradar.sensor.drivers.BluetoothScanner
 import com.bioradar.sensor.drivers.CameraMotionDriver
 import com.bioradar.sensor.drivers.WifiScanner
 import com.bioradar.sensor.fusion.FusionEngine
+import com.bioradar.sensor.processors.FftProcessor
+import com.bioradar.sensor.processors.RssiAnalyzer
+import com.bioradar.sensor.processors.SelfMotionDetector
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -22,6 +28,53 @@ import javax.inject.Singleton
 @InstallIn(SingletonComponent::class)
 object AppModule {
     
+    // Database
+    @Provides
+    @Singleton
+    fun provideDatabase(
+        @ApplicationContext context: Context
+    ): BioRadarDatabase {
+        return Room.databaseBuilder(
+            context,
+            BioRadarDatabase::class.java,
+            "bioradar_database"
+        ).build()
+    }
+    
+    @Provides
+    fun provideDetectionLogDao(database: BioRadarDatabase): DetectionLogDao {
+        return database.detectionLogDao()
+    }
+    
+    @Provides
+    fun provideZoneDao(database: BioRadarDatabase): ZoneDao {
+        return database.zoneDao()
+    }
+    
+    @Provides
+    fun provideCalibrationDao(database: BioRadarDatabase): CalibrationDao {
+        return database.calibrationDao()
+    }
+    
+    // Repositories
+    @Provides
+    @Singleton
+    fun provideDetectionLogRepository(
+        detectionLogDao: DetectionLogDao
+    ): DetectionLogRepository {
+        return DetectionLogRepository(detectionLogDao)
+    }
+    
+    @Provides
+    @Singleton
+    fun provideZoneRepository(
+        zoneDao: ZoneDao,
+        calibrationDao: CalibrationDao
+    ): ZoneRepository {
+        return ZoneRepository(zoneDao, calibrationDao)
+    }
+    
+    // Sensor Drivers
     @Provides
     @Singleton
     fun provideBluetoothScanner(
@@ -54,6 +107,26 @@ object AppModule {
         return CameraMotionDriver(context)
     }
     
+    // Signal Processors
+    @Provides
+    @Singleton
+    fun provideRssiAnalyzer(): RssiAnalyzer {
+        return RssiAnalyzer()
+    }
+    
+    @Provides
+    @Singleton
+    fun provideFftProcessor(): FftProcessor {
+        return FftProcessor()
+    }
+    
+    @Provides
+    @Singleton
+    fun provideSelfMotionDetector(): SelfMotionDetector {
+        return SelfMotionDetector()
+    }
+    
+    // Fusion Engine
     @Provides
     @Singleton
     fun provideFusionEngine(
@@ -70,6 +143,7 @@ object AppModule {
         )
     }
     
+    // Security
     @Provides
     @Singleton
     fun provideSecureStorage(
