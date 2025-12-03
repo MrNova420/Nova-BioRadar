@@ -1,0 +1,75 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    
+    <!-- Background circle -->
+    <path
+        android:fillColor="#0D1117"
+        android:pathData="M54,54m-54,0a54,54 0,1 1,108 0a54,54 0,1 1,-108 0"/>
+    
+    <!-- Outer radar ring -->
+    <path
+        android:fillColor="@android:color/transparent"
+        android:strokeColor="#00FF00"
+        android:strokeWidth="2"
+        android:pathData="M54,54m-40,0a40,40 0,1 1,80 0a40,40 0,1 1,-80 0"/>
+    
+    <!-- Middle radar ring -->
+    <path
+        android:fillColor="@android:color/transparent"
+        android:strokeColor="#00FF00"
+        android:strokeAlpha="0.6"
+        android:strokeWidth="1.5"
+        android:pathData="M54,54m-27,0a27,27 0,1 1,54 0a27,27 0,1 1,-54 0"/>
+    
+    <!-- Inner radar ring -->
+    <path
+        android:fillColor="@android:color/transparent"
+        android:strokeColor="#00FF00"
+        android:strokeAlpha="0.4"
+        android:strokeWidth="1"
+        android:pathData="M54,54m-14,0a14,14 0,1 1,28 0a14,14 0,1 1,-28 0"/>
+    
+    <!-- Cross hairs -->
+    <path
+        android:strokeColor="#00FF00"
+        android:strokeAlpha="0.5"
+        android:strokeWidth="1"
+        android:pathData="M54,14L54,94"/>
+    <path
+        android:strokeColor="#00FF00"
+        android:strokeAlpha="0.5"
+        android:strokeWidth="1"
+        android:pathData="M14,54L94,54"/>
+    
+    <!-- Diagonal lines -->
+    <path
+        android:strokeColor="#00FF00"
+        android:strokeAlpha="0.3"
+        android:strokeWidth="0.5"
+        android:pathData="M25.7,25.7L82.3,82.3"/>
+    <path
+        android:strokeColor="#00FF00"
+        android:strokeAlpha="0.3"
+        android:strokeWidth="0.5"
+        android:pathData="M82.3,25.7L25.7,82.3"/>
+    
+    <!-- Sweep line -->
+    <path
+        android:strokeColor="#00FF00"
+        android:strokeWidth="2"
+        android:pathData="M54,54L54,14"/>
+    
+    <!-- Center dot -->
+    <path
+        android:fillColor="#00FF00"
+        android:pathData="M54,54m-4,0a4,4 0,1 1,8 0a4,4 0,1 1,-8 0"/>
+    
+    <!-- Sample target -->
+    <path
+        android:fillColor="#FF0000"
+        android:pathData="M72,36m-3,0a3,3 0,1 1,6 0a3,3 0,1 1,-6 0"/>
+    
+</vector>
