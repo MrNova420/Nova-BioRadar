@@ -1763,4 +1763,1576 @@ Nova BioRadar transforms any Android phone into a futuristic presence detection 
 
 ---
 
-*Nova BioRadar - All-in-One Autonomous Development Guide v1.0*
+## 17. Extended Range Research & Implementation (5-50m+)
+
+### 17.1 Range Improvement Goals
+
+The primary objective is to achieve reliable detection at **5-10 meters minimum**, with stretch goals of **20-50+ meters** using advanced techniques. The system must automatically adapt to each device's capabilities.
+
+#### Target Range Specifications
+
+| Detection Method | Current Range | Target Range | Stretch Goal |
+|-----------------|---------------|--------------|--------------|
+| WiFi CSI | 3-5m | 10-15m | 30m+ |
+| Bluetooth 5.0+ | 10m | 30m | 50m |
+| Audio Sonar | 3-5m | 8-12m | 15m |
+| Multi-Frequency Sonar | N/A | 10-15m | 20m |
+| Camera AI | 5m | 15m | 30m |
+| UWB | 10m | 50m | 100m |
+| WiFi RTT | N/A | 15m | 30m |
+| Sensor Fusion | 5m | 15-20m | 50m+ |
+
+---
+
+### 17.2 WiFi Channel State Information (CSI) Detection
+
+#### Overview
+WiFi CSI exploits the fine-grained channel information from WiFi signals to detect human presence and movement through walls. Unlike simple RSSI, CSI provides amplitude and phase information for each subcarrier.
+
+#### How It Works
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│                    WiFi CSI Detection Pipeline                       │
+├─────────────────────────────────────────────────────────────────────┤
+│                                                                      │
+│   WiFi Access Point ──► Radio Waves ──► Human Body (reflects) ──►  │
+│                                                                      │
+│   Phone Receiver ──► CSI Extraction ──► Signal Processing ──►      │
+│                                                                      │
+│   ┌─────────────────────────────────────────────────────────────┐   │
+│   │  CSI Matrix (per packet):                                    │   │
+│   │  [Subcarrier 1: amplitude, phase]                           │   │
+│   │  [Subcarrier 2: amplitude, phase]                           │   │
+│   │  [...]                                                       │   │
+│   │  [Subcarrier N: amplitude, phase]  (N = 52-256 depending)   │   │
+│   └─────────────────────────────────────────────────────────────┘   │
+│                                                                      │
+│   Variance Analysis ──► Movement Detection ──► Presence Alert       │
+│                                                                      │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+#### Implementation Strategy
+
+```kotlin
+/**
+ * WiFi CSI-based presence detection
+ * Requires: Android 11+ with WiFi RTT support, or rooted device with Nexmon CSI
+ */
+class WifiCsiDetector(private val context: Context) {
+    
+    private val csiBuffer = CircularBuffer<CsiReading>(1000)
+    private var baselineVariance: FloatArray? = null
+    
+    data class CsiReading(
+        val timestamp: Long,
+        val subcarrierAmplitudes: FloatArray,
+        val subcarrierPhases: FloatArray,
+        val rssi: Int
+    )
+    
+    /**
+     * Extract CSI-like features from available WiFi APIs
+     * Uses WiFi RTT (Round Trip Time) as CSI proxy on standard Android
+     */
+    suspend fun collectCsiFeatures(): CsiFeatures {
+        val wifiRttManager = context.getSystemService(Context.WIFI_RTT_RANGING_SERVICE) 
+            as? WifiRttManager
+        
+        return if (wifiRttManager?.isAvailable == true) {
+            collectWifiRttFeatures(wifiRttManager)
+        } else {
+            collectRssiBasedFeatures()
+        }
+    }
+    
+    /**
+     * WiFi RTT-based ranging (Android 9+, WiFi RTT capable APs)
+     * Provides distance estimates with ~1-2m accuracy
+     */
+    private suspend fun collectWifiRttFeatures(manager: WifiRttManager): CsiFeatures {
+        val scanResults = getWifiScanResults()
+        val rttCapableAps = scanResults.filter { it.is80211mcResponder }
+        
+        if (rttCapableAps.isEmpty()) {
+            return collectRssiBasedFeatures()
+        }
+        
+        val rangingRequest = RangingRequest.Builder()
+            .addAccessPoints(rttCapableAps)
+            .build()
+        
+        return suspendCancellableCoroutine { continuation ->
+            manager.startRanging(rangingRequest, context.mainExecutor,
+                object : RangingResultCallback() {
+                    override fun onRangingResults(results: List<RangingResult>) {
+                        val features = processRangingResults(results)
+                        continuation.resume(features)
+                    }
+                    override fun onRangingFailure(code: Int) {
+                        continuation.resume(CsiFeatures.empty())
+                    }
+                })
+        }
+    }
+    
+    /**
+     * Detect presence through signal variance analysis
+     * Human movement causes predictable CSI/RSSI pattern changes
+     */
+    fun detectPresence(currentReading: CsiReading): PresenceResult {
+        csiBuffer.add(currentReading)
+        
+        if (csiBuffer.size < 100) {
+            return PresenceResult(detected = false, calibrating = true)
+        }
+        
+        val recentVariance = calculateVariance(csiBuffer.takeLast(50))
+        val historicalVariance = baselineVariance ?: calculateVariance(csiBuffer.take(50))
+        
+        // Breathing detection: 0.1-0.5 Hz oscillation
+        val breathingComponent = extractFrequencyComponent(csiBuffer, 0.1f, 0.5f)
+        
+        // Movement detection: 0.5-5 Hz changes
+        val movementComponent = extractFrequencyComponent(csiBuffer, 0.5f, 5.0f)
+        
+        // Walking detection: characteristic Doppler pattern
+        val walkingPattern = detectWalkingPattern(csiBuffer)
+        
+        val presenceScore = calculatePresenceScore(
+            varianceRatio = recentVariance / (historicalVariance + 0.001f),
+            breathingEnergy = breathingComponent,
+            movementEnergy = movementComponent,
+            walkingConfidence = walkingPattern
+        )
+        
+        return PresenceResult(
+            detected = presenceScore > PRESENCE_THRESHOLD,
+            confidence = presenceScore,
+            estimatedDistance = estimateDistanceFromCsi(currentReading),
+            isMoving = movementComponent > MOVEMENT_THRESHOLD,
+            isBreathing = breathingComponent > BREATHING_THRESHOLD
+        )
+    }
+    
+    /**
+     * Through-wall detection using multipath analysis
+     * Walls attenuate but don't block WiFi - we can detect presence behind them
+     */
+    fun detectThroughWall(readings: List<CsiReading>): ThroughWallResult {
+        // Analyze multipath propagation
+        val multipathProfile = analyzeMultipath(readings)
+        
+        // Look for human-caused reflections
+        val humanReflections = multipathProfile.filter { path ->
+            path.delay in HUMAN_REFLECTION_DELAY_RANGE &&
+            path.dopplerShift in HUMAN_DOPPLER_RANGE
+        }
+        
+        // Estimate position from multiple reflection paths
+        val estimatedPosition = triangulateFromMultipath(humanReflections)
+        
+        return ThroughWallResult(
+            detected = humanReflections.isNotEmpty(),
+            confidence = calculateThroughWallConfidence(humanReflections),
+            estimatedDistance = estimatedPosition?.distance,
+            estimatedAngle = estimatedPosition?.angle,
+            wallAttenuation = calculateWallAttenuation(readings)
+        )
+    }
+    
+    companion object {
+        const val PRESENCE_THRESHOLD = 0.6f
+        const val MOVEMENT_THRESHOLD = 0.3f
+        const val BREATHING_THRESHOLD = 0.2f
+        val HUMAN_REFLECTION_DELAY_RANGE = 10L..500L // nanoseconds
+        val HUMAN_DOPPLER_RANGE = -5f..5f // Hz
+    }
+}
+
+data class CsiFeatures(
+    val amplitudeVariance: Float,
+    val phaseVariance: Float,
+    val rssiVariance: Float,
+    val rttDistance: Float?,
+    val rttVariance: Float?
+) {
+    companion object {
+        fun empty() = CsiFeatures(0f, 0f, 0f, null, null)
+    }
+}
+
+data class PresenceResult(
+    val detected: Boolean,
+    val confidence: Float = 0f,
+    val estimatedDistance: Float? = null,
+    val isMoving: Boolean = false,
+    val isBreathing: Boolean = false,
+    val calibrating: Boolean = false
+)
+
+data class ThroughWallResult(
+    val detected: Boolean,
+    val confidence: Float,
+    val estimatedDistance: Float?,
+    val estimatedAngle: Float?,
+    val wallAttenuation: Float
+)
+```
+
+#### Range Enhancement Techniques
+
+1. **Multi-AP Triangulation**
+   - Use signals from 3+ access points
+   - Triangulate position using RTT or RSSI
+   - Achievable range: 15-30m indoors
+
+2. **Subcarrier Analysis**
+   - Analyze individual WiFi subcarriers (requires root/custom firmware)
+   - Detect micro-movements through phase changes
+   - Can detect breathing at 5-8m through walls
+
+3. **Machine Learning Classification**
+   - Train models on CSI patterns for different activities
+   - Distinguish human vs pet vs object movement
+   - Improve accuracy from 70% to 90%+
+
+---
+
+### 17.3 Advanced Audio Sonar Techniques
+
+#### Multi-Frequency FMCW Sonar
+
+Traditional single-frequency sonar has limited range. Frequency-Modulated Continuous Wave (FMCW) sonar dramatically improves range and accuracy.
+
+```kotlin
+/**
+ * FMCW (Frequency Modulated Continuous Wave) Sonar
+ * Achieves 10-20m range vs 3-5m for single frequency
+ */
+class FmcwSonarProcessor(private val context: Context) {
+    
+    private val sampleRate = 48000
+    private val chirpDuration = 0.1f // 100ms
+    private val startFrequency = 17000f // 17 kHz
+    private val endFrequency = 22000f // 22 kHz (sweep range)
+    private val fftSize = 4096
+    
+    /**
+     * Generate FMCW chirp signal
+     * Frequency sweeps from startFreq to endFreq over chirpDuration
+     */
+    fun generateChirp(): ShortArray {
+        val numSamples = (sampleRate * chirpDuration).toInt()
+        val chirp = ShortArray(numSamples)
+        
+        val chirpRate = (endFrequency - startFrequency) / chirpDuration
+        
+        for (i in 0 until numSamples) {
+            val t = i.toFloat() / sampleRate
+            val instantFreq = startFrequency + chirpRate * t
+            val phase = 2 * PI * (startFrequency * t + 0.5f * chirpRate * t * t)
+            chirp[i] = (Short.MAX_VALUE * sin(phase)).toInt().toShort()
+        }
+        
+        return chirp
+    }
+    
+    /**
+     * Process received echo using matched filter
+     * Returns distance and velocity estimates
+     */
+    fun processEcho(transmitted: ShortArray, received: ShortArray): FmcwResult {
+        // Cross-correlation (matched filter)
+        val correlation = crossCorrelate(transmitted, received)
+        
+        // Find peaks in correlation - each peak is a reflection
+        val peaks = findPeaks(correlation, threshold = 0.3f)
+        
+        // Convert peak positions to distances
+        val targets = peaks.map { peak ->
+            val delay = peak.position.toFloat() / sampleRate
+            val distance = delay * SPEED_OF_SOUND / 2
+            
+            // Doppler shift for velocity
+            val dopplerShift = calculateDopplerShift(received, peak)
+            val velocity = dopplerShift * SPEED_OF_SOUND / 
+                ((startFrequency + endFrequency) / 2)
+            
+            SonarTarget(
+                distance = distance,
+                velocity = velocity,
+                amplitude = peak.amplitude,
+                confidence = calculateConfidence(peak)
+            )
+        }
+        
+        return FmcwResult(
+            targets = targets.filter { it.distance in 0.3f..20f },
+            noiseFloor = calculateNoiseFloor(correlation),
+            signalQuality = calculateSignalQuality(peaks, correlation)
+        )
+    }
+    
+    /**
+     * Beamforming with multiple microphones (if available)
+     * Some phones have 2-4 microphones - use for directional detection
+     */
+    fun beamformingProcess(micSignals: List<ShortArray>): BeamformResult {
+        if (micSignals.size < 2) {
+            return BeamformResult.singleMic()
+        }
+        
+        // Phase difference between microphones gives direction
+        val angles = mutableListOf<Float>()
+        
+        for (angle in 0 until 360 step 15) {
+            val beamOutput = calculateBeamOutput(micSignals, angle.toFloat())
+            angles.add(beamOutput)
+        }
+        
+        val peakAngle = angles.indexOfMax() * 15
+        val confidence = angles.max() / angles.average().toFloat()
+        
+        return BeamformResult(
+            hasMultipleMics = true,
+            estimatedAngle = peakAngle.toFloat(),
+            angleConfidence = confidence,
+            beamPattern = angles.toFloatArray()
+        )
+    }
+    
+    companion object {
+        const val SPEED_OF_SOUND = 343f // m/s at 20°C
+    }
+}
+
+data class FmcwResult(
+    val targets: List<SonarTarget>,
+    val noiseFloor: Float,
+    val signalQuality: Float
+)
+
+data class SonarTarget(
+    val distance: Float,
+    val velocity: Float,
+    val amplitude: Float,
+    val confidence: Float
+)
+
+data class BeamformResult(
+    val hasMultipleMics: Boolean,
+    val estimatedAngle: Float?,
+    val angleConfidence: Float,
+    val beamPattern: FloatArray?
+) {
+    companion object {
+        fun singleMic() = BeamformResult(false, null, 0f, null)
+    }
+}
+```
+
+#### Parametric Array (Theoretical)
+
+Using ultrasonic carrier frequencies to create highly directional audio beams:
+
+```kotlin
+/**
+ * Parametric Array Sonar (Theoretical/Experimental)
+ * Uses nonlinear acoustic interaction for highly directional beam
+ * 
+ * Note: Requires specific hardware capabilities - may not work on all devices
+ */
+class ParametricArraySonar {
+    
+    /**
+     * Generate parametric array signal
+     * Two ultrasonic frequencies that interact to create audible difference frequency
+     */
+    fun generateParametricSignal(
+        carrierFreq: Float = 40000f,  // 40 kHz carrier
+        modulationFreq: Float = 1000f  // 1 kHz modulation
+    ): FloatArray {
+        // Most phone speakers can't reach 40kHz, but this shows the concept
+        // Real implementation would use maximum speaker frequency
+        
+        val actualCarrier = minOf(carrierFreq, 22000f) // Limit to speaker capability
+        
+        val samples = FloatArray(48000) // 1 second
+        for (i in samples.indices) {
+            val t = i / 48000f
+            // AM modulation creates sum and difference frequencies
+            val carrier = sin(2 * PI * actualCarrier * t)
+            val modulator = 1 + 0.5f * sin(2 * PI * modulationFreq * t)
+            samples[i] = (carrier * modulator).toFloat()
+        }
+        
+        return samples
+    }
+}
+```
+
+---
+
+### 17.4 Bluetooth 5.0+ Extended Range
+
+#### Bluetooth LE Coded PHY (Long Range)
+
+Bluetooth 5.0 introduced Coded PHY which can achieve 4x the range of standard BLE.
+
+```kotlin
+/**
+ * Bluetooth 5.0 Long Range detection
+ * Uses Coded PHY (S=8) for extended range scanning
+ */
+class BluetoothLongRangeScanner(private val context: Context) {
+    
+    private val bluetoothAdapter = BluetoothAdapter.getDefaultAdapter()
+    private val scanner = bluetoothAdapter?.bluetoothLeScanner
+    
+    /**
+     * Check if device supports Bluetooth 5.0 Long Range
+     */
+    fun supportsLongRange(): Boolean {
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            bluetoothAdapter?.isLeCodedPhySupported == true
+        } else {
+            false
+        }
+    }
+    
+    /**
+     * Start long-range BLE scanning
+     * Coded PHY can reach 400m in open air, 50m+ indoors
+     */
+    fun startLongRangeScan(callback: LongRangeScanCallback) {
+        if (!supportsLongRange()) {
+            startStandardScan(callback)
+            return
+        }
+        
+        val settings = ScanSettings.Builder()
+            .setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY)
+            .setLegacy(false) // Required for extended advertising
+            .setPhy(ScanSettings.PHY_LE_ALL_SUPPORTED) // Scan all PHYs
+            .build()
+        
+        val scanCallback = object : ScanCallback() {
+            override fun onScanResult(callbackType: Int, result: ScanResult) {
+                val reading = BleLongRangeReading(
+                    address = result.device.address,
+                    rssi = result.rssi,
+                    txPower = result.txPower,
+                    primaryPhy = result.primaryPhy,
+                    secondaryPhy = result.secondaryPhy,
+                    isCodedPhy = result.primaryPhy == BluetoothDevice.PHY_LE_CODED,
+                    estimatedDistance = calculateDistance(result.rssi, result.txPower),
+                    timestamp = System.currentTimeMillis()
+                )
+                callback.onDeviceFound(reading)
+            }
+        }
+        
+        scanner?.startScan(null, settings, scanCallback)
+    }
+    
+    /**
+     * Calculate distance from RSSI using log-distance path loss model
+     * More accurate with txPower from advertisement
+     */
+    private fun calculateDistance(rssi: Int, txPower: Int): Float {
+        val actualTxPower = if (txPower != ScanResult.TX_POWER_NOT_PRESENT) {
+            txPower
+        } else {
+            -59 // Default tx power at 1m
+        }
+        
+        val ratio = rssi.toFloat() / actualTxPower
+        return if (ratio < 1.0) {
+            ratio.pow(10)
+        } else {
+            val accuracy = 0.89976f * ratio.pow(7.7095f) + 0.111f
+            accuracy
+        }
+    }
+    
+    /**
+     * Direction finding using multiple BLE advertisements
+     * Requires movement or multiple receivers for triangulation
+     */
+    fun estimateDirection(readings: List<BleLongRangeReading>): DirectionEstimate? {
+        if (readings.size < 3) return null
+        
+        // Use RSSI gradient to estimate direction
+        val rssiGradient = calculateRssiGradient(readings)
+        
+        // Phone movement creates pseudo-antenna array
+        val movementVector = getPhoneMovementVector()
+        
+        return if (movementVector.magnitude > 0.1f) {
+            val angle = calculateAngleFromGradient(rssiGradient, movementVector)
+            DirectionEstimate(angle, confidence = 0.6f)
+        } else {
+            null
+        }
+    }
+}
+
+data class BleLongRangeReading(
+    val address: String,
+    val rssi: Int,
+    val txPower: Int,
+    val primaryPhy: Int,
+    val secondaryPhy: Int,
+    val isCodedPhy: Boolean,
+    val estimatedDistance: Float,
+    val timestamp: Long
+)
+
+data class DirectionEstimate(
+    val angleDegrees: Float,
+    val confidence: Float
+)
+
+interface LongRangeScanCallback {
+    fun onDeviceFound(reading: BleLongRangeReading)
+}
+```
+
+#### Bluetooth Direction Finding (AoA/AoD)
+
+Bluetooth 5.1 added Angle of Arrival (AoA) and Angle of Departure (AoD):
+
+```kotlin
+/**
+ * Bluetooth 5.1 Direction Finding
+ * Provides precise angle measurement (+/- 5°)
+ * 
+ * Note: Requires specific hardware support (antenna array)
+ */
+class BluetoothDirectionFinder(private val context: Context) {
+    
+    /**
+     * Check if device supports direction finding
+     * Very few phones currently support this (2024)
+     */
+    fun supportsDirectionFinding(): Boolean {
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            // Check for antenna switching capability
+            BluetoothAdapter.getDefaultAdapter()
+                ?.isLePeriodicAdvertisingSupported == true
+        } else {
+            false
+        }
+    }
+    
+    /**
+     * Start direction-aware scanning
+     * Falls back to RSSI-based estimation if hardware unsupported
+     */
+    fun startDirectionScan(callback: DirectionCallback) {
+        if (supportsDirectionFinding()) {
+            startHardwareDirectionScan(callback)
+        } else {
+            startSoftwareDirectionEstimation(callback)
+        }
+    }
+    
+    /**
+     * Software-based direction estimation
+     * Uses phone movement + RSSI changes to estimate direction
+     */
+    private fun startSoftwareDirectionEstimation(callback: DirectionCallback) {
+        val rssiHistory = mutableMapOf<String, MutableList<Pair<Long, Int>>>()
+        val orientationHistory = mutableListOf<Pair<Long, Float>>()
+        
+        // Collect orientation data
+        val sensorManager = context.getSystemService(Context.SENSOR_SERVICE) as SensorManager
+        val rotationListener = object : SensorEventListener {
+            override fun onSensorChanged(event: SensorEvent) {
+                orientationHistory.add(System.currentTimeMillis() to event.values[0])
+            }
+            override fun onAccuracyChanged(sensor: Sensor, accuracy: Int) {}
+        }
+        sensorManager.registerListener(
+            rotationListener,
+            sensorManager.getDefaultSensor(Sensor.TYPE_ROTATION_VECTOR),
+            SensorManager.SENSOR_DELAY_FASTEST
+        )
+        
+        // When phone rotates, correlate RSSI changes with orientation
+        // Direction with highest RSSI indicates target bearing
+    }
+}
+
+interface DirectionCallback {
+    fun onDirectionEstimate(address: String, angle: Float, confidence: Float, distance: Float)
+}
+```
+
+---
+
+### 17.5 Through-Wall Detection Techniques
+
+#### WiFi-Based Through-Wall Sensing
+
+```kotlin
+/**
+ * Through-Wall Human Detection using WiFi
+ * Exploits WiFi signal reflection and absorption by human body
+ */
+class ThroughWallDetector(private val context: Context) {
+    
+    private val wifiManager = context.getSystemService(Context.WIFI_SERVICE) as WifiManager
+    private val signalHistory = mutableMapOf<String, CircularBuffer<WifiReading>>()
+    
+    data class WifiReading(
+        val bssid: String,
+        val rssi: Int,
+        val frequency: Int,
+        val timestamp: Long,
+        val channelWidth: Int
+    )
+    
+    /**
+     * Detect human presence behind walls using WiFi signal analysis
+     * 
+     * Principle: Human body contains 60% water, which absorbs/reflects 2.4GHz WiFi
+     * Movement causes measurable fluctuations in signal strength
+     */
+    suspend fun detectThroughWall(): ThroughWallDetection {
+        // Collect readings from all visible access points
+        val currentReadings = collectWifiReadings()
+        
+        // Update history
+        currentReadings.forEach { reading ->
+            signalHistory.getOrPut(reading.bssid) { 
+                CircularBuffer(500) 
+            }.add(reading)
+        }
+        
+        // Analyze each AP for human-caused fluctuations
+        val detections = signalHistory.mapNotNull { (bssid, history) ->
+            analyzeForHumanPresence(bssid, history)
+        }
+        
+        // Combine detections from multiple APs
+        return combineDetections(detections)
+    }
+    
+    /**
+     * Analyze signal for human-caused fluctuations
+     * Distinguishes human movement from environmental noise
+     */
+    private fun analyzeForHumanPresence(
+        bssid: String, 
+        history: CircularBuffer<WifiReading>
+    ): SingleApDetection? {
+        if (history.size < 100) return null
+        
+        val rssiValues = history.map { it.rssi.toFloat() }
+        
+        // Calculate variance (human movement increases variance)
+        val variance = calculateVariance(rssiValues)
+        val baseline = getBaseline(bssid)
+        
+        // Frequency analysis for breathing/movement patterns
+        val fftResult = performFFT(rssiValues)
+        
+        // Breathing: 0.2-0.5 Hz (12-30 breaths/min)
+        val breathingEnergy = fftResult.getEnergyInRange(0.2f, 0.5f)
+        
+        // Walking: 1-2 Hz (60-120 steps/min)
+        val walkingEnergy = fftResult.getEnergyInRange(1f, 2f)
+        
+        // Arm movement: 2-5 Hz
+        val movementEnergy = fftResult.getEnergyInRange(2f, 5f)
+        
+        val humanScore = calculateHumanScore(
+            varianceRatio = variance / baseline.avgVariance,
+            breathingEnergy = breathingEnergy,
+            walkingEnergy = walkingEnergy,
+            movementEnergy = movementEnergy
+        )
+        
+        return if (humanScore > DETECTION_THRESHOLD) {
+            SingleApDetection(
+                bssid = bssid,
+                confidence = humanScore,
+                isMoving = walkingEnergy > WALKING_THRESHOLD,
+                isBreathing = breathingEnergy > BREATHING_THRESHOLD,
+                estimatedDistance = estimateDistanceFromRssi(history.last().rssi)
+            )
+        } else null
+    }
+    
+    /**
+     * Estimate distance to detected presence
+     * Uses multipath analysis when possible
+     */
+    private fun estimateDistanceFromRssi(rssi: Int): Float {
+        // Free-space path loss model adjusted for indoor/through-wall
+        val txPower = -40 // Typical AP tx power at 1m
+        val pathLossExponent = 3.5f // Higher for through-wall
+        
+        return 10f.pow((txPower - rssi) / (10 * pathLossExponent))
+    }
+    
+    /**
+     * Wall material affects detection capability
+     */
+    enum class WallType(val attenuation: Float) {
+        DRYWALL(3f),        // ~3dB loss
+        CONCRETE(10f),      // ~10dB loss
+        BRICK(8f),          // ~8dB loss
+        GLASS(2f),          // ~2dB loss
+        METAL(20f),         // ~20dB loss (very difficult)
+        WOOD(4f)            // ~4dB loss
+    }
+    
+    companion object {
+        const val DETECTION_THRESHOLD = 0.5f
+        const val WALKING_THRESHOLD = 0.3f
+        const val BREATHING_THRESHOLD = 0.2f
+    }
+}
+
+data class SingleApDetection(
+    val bssid: String,
+    val confidence: Float,
+    val isMoving: Boolean,
+    val isBreathing: Boolean,
+    val estimatedDistance: Float
+)
+
+data class ThroughWallDetection(
+    val detected: Boolean,
+    val confidence: Float,
+    val numSupportingAps: Int,
+    val estimatedDistance: Float?,
+    val estimatedAngle: Float?,
+    val isMoving: Boolean,
+    val isStationary: Boolean,
+    val breathingDetected: Boolean
+)
+```
+
+#### Doppler Radar Principles via Phone
+
+```kotlin
+/**
+ * Doppler Effect Detection
+ * Uses WiFi/Bluetooth carrier frequency shifts to detect motion
+ */
+class DopplerDetector {
+    
+    /**
+     * Detect Doppler shift in received signals
+     * Moving targets cause frequency shift: Δf = 2 * v * f / c
+     * 
+     * For WiFi at 2.4GHz:
+     * - Walking (1.4 m/s) causes ~22 Hz shift
+     * - Running (5 m/s) causes ~80 Hz shift
+     * - Breathing causes ~0.5 Hz shift
+     */
+    fun detectDopplerShift(
+        samples: FloatArray, 
+        sampleRate: Int,
+        carrierFreq: Float
+    ): DopplerResult {
+        // Perform high-resolution FFT
+        val fftSize = 8192
+        val fftResult = performFFT(samples, fftSize)
+        
+        // Find peaks around carrier frequency
+        val carrierBin = (carrierFreq * fftSize / sampleRate).toInt()
+        val searchRange = 100 // bins around carrier
+        
+        val peaks = findPeaksInRange(fftResult, carrierBin - searchRange, carrierBin + searchRange)
+        
+        // Convert peak offsets to velocities
+        val velocities = peaks.map { peak ->
+            val freqShift = (peak.bin - carrierBin) * sampleRate.toFloat() / fftSize
+            val velocity = freqShift * SPEED_OF_LIGHT / (2 * carrierFreq)
+            DopplerTarget(velocity = velocity, strength = peak.amplitude)
+        }
+        
+        // Classify detected motion
+        val motionType = classifyMotion(velocities)
+        
+        return DopplerResult(
+            targets = velocities,
+            motionType = motionType,
+            maxVelocity = velocities.maxOfOrNull { abs(it.velocity) } ?: 0f
+        )
+    }
+    
+    /**
+     * Classify motion type from Doppler signature
+     */
+    private fun classifyMotion(targets: List<DopplerTarget>): MotionType {
+        val maxVel = targets.maxOfOrNull { abs(it.velocity) } ?: 0f
+        
+        return when {
+            maxVel < 0.1f -> MotionType.STATIONARY
+            maxVel < 0.5f -> MotionType.BREATHING
+            maxVel < 2f -> MotionType.WALKING
+            maxVel < 6f -> MotionType.RUNNING
+            else -> MotionType.VEHICLE
+        }
+    }
+    
+    companion object {
+        const val SPEED_OF_LIGHT = 3e8f // m/s
+    }
+}
+
+data class DopplerTarget(
+    val velocity: Float,
+    val strength: Float
+)
+
+data class DopplerResult(
+    val targets: List<DopplerTarget>,
+    val motionType: MotionType,
+    val maxVelocity: Float
+)
+
+enum class MotionType {
+    STATIONARY,
+    BREATHING,
+    WALKING,
+    RUNNING,
+    VEHICLE,
+    UNKNOWN
+}
+```
+
+---
+
+### 17.6 UAV/Drone Detection
+
+#### RF Signature Detection
+
+```kotlin
+/**
+ * UAV/Drone Detection System
+ * Detects drones through RF emissions, acoustic signature, and visual detection
+ */
+class UavDetector(private val context: Context) {
+    
+    /**
+     * Drone RF Detection
+     * Most consumer drones use 2.4GHz or 5.8GHz for control/video
+     */
+    fun detectDroneRf(): DroneRfDetection {
+        val wifiManager = context.getSystemService(Context.WIFI_SERVICE) as WifiManager
+        val scanResults = wifiManager.scanResults
+        
+        // Look for drone-specific WiFi patterns
+        val droneSignatures = scanResults.filter { result ->
+            isDroneWifiSignature(result)
+        }
+        
+        // Analyze signal patterns
+        val rfDetections = droneSignatures.map { signature ->
+            DroneRfSignature(
+                ssid = signature.SSID,
+                bssid = signature.BSSID,
+                rssi = signature.level,
+                frequency = signature.frequency,
+                droneType = identifyDroneType(signature),
+                estimatedDistance = estimateDroneDistance(signature.level),
+                confidence = calculateDroneConfidence(signature)
+            )
+        }
+        
+        return DroneRfDetection(
+            detected = rfDetections.isNotEmpty(),
+            signatures = rfDetections,
+            strongestSignal = rfDetections.maxByOrNull { it.rssi }
+        )
+    }
+    
+    /**
+     * Check if WiFi signature matches known drone patterns
+     */
+    private fun isDroneWifiSignature(result: ScanResult): Boolean {
+        val ssid = result.SSID?.uppercase() ?: ""
+        val bssid = result.BSSID?.uppercase() ?: ""
+        
+        // Known drone manufacturer prefixes
+        val dronePatterns = listOf(
+            "DJI", "PHANTOM", "MAVIC", "SPARK", "TELLO",    // DJI
+            "SKYDIO",                                         // Skydio
+            "PARROT", "ANAFI", "BEBOP",                      // Parrot
+            "AUTEL", "EVO",                                   // Autel
+            "YUNEEC", "TYPHOON",                              // Yuneec
+            "3DR", "SOLO",                                    // 3DR
+            "GOPRO", "KARMA",                                 // GoPro
+            "DRONE", "QUAD", "UAV", "COPTER"                 // Generic
+        )
+        
+        // Check SSID
+        if (dronePatterns.any { ssid.contains(it) }) {
+            return true
+        }
+        
+        // Check OUI (first 6 chars of MAC) for known drone manufacturers
+        val knownDroneOuis = listOf(
+            "60:60:1F", // DJI
+            "34:D2:62", // DJI
+            "48:01:C5", // DJI
+            "A0:14:3D", // Parrot
+            "90:03:B7", // Parrot
+            "00:12:1C", // Parrot
+        )
+        
+        return knownDroneOuis.any { bssid.startsWith(it.replace(":", "")) }
+    }
+    
+    /**
+     * Identify drone type from signature
+     */
+    private fun identifyDroneType(result: ScanResult): DroneType {
+        val ssid = result.SSID?.uppercase() ?: ""
+        
+        return when {
+            ssid.contains("MAVIC") -> DroneType.DJI_MAVIC
+            ssid.contains("PHANTOM") -> DroneType.DJI_PHANTOM
+            ssid.contains("MINI") -> DroneType.DJI_MINI
+            ssid.contains("TELLO") -> DroneType.DJI_TELLO
+            ssid.contains("ANAFI") -> DroneType.PARROT_ANAFI
+            ssid.contains("SKYDIO") -> DroneType.SKYDIO
+            else -> DroneType.UNKNOWN
+        }
+    }
+    
+    /**
+     * Acoustic drone detection
+     * Drones produce characteristic sound at 100-1000 Hz from motors/props
+     */
+    suspend fun detectDroneAcoustic(audioSamples: ShortArray): DroneAcousticDetection {
+        val fftResult = performFFT(audioSamples.map { it.toFloat() }.toFloatArray())
+        
+        // Drone motor frequencies (typically 100-500 Hz for props)
+        val motorFreqEnergy = fftResult.getEnergyInRange(100f, 500f)
+        
+        // Propeller harmonics
+        val propHarmonics = listOf(200f, 400f, 600f, 800f).map { freq ->
+            fftResult.getEnergyAt(freq)
+        }
+        
+        // Characteristic drone sound pattern
+        val droneScore = calculateDroneAcousticScore(motorFreqEnergy, propHarmonics)
+        
+        // Estimate distance from sound intensity
+        val estimatedDistance = estimateDistanceFromAudio(motorFreqEnergy)
+        
+        // Direction (requires stereo mics)
+        val direction = estimateAudioDirection()
+        
+        return DroneAcousticDetection(
+            detected = droneScore > DRONE_ACOUSTIC_THRESHOLD,
+            confidence = droneScore,
+            estimatedDistance = estimatedDistance,
+            estimatedDirection = direction,
+            frequencyProfile = extractFrequencyProfile(fftResult)
+        )
+    }
+    
+    /**
+     * Visual drone detection using camera
+     * Uses ML model trained on drone silhouettes
+     */
+    suspend fun detectDroneVisual(frame: Bitmap): DroneVisualDetection {
+        // Preprocess image
+        val processed = preprocessForDroneDetection(frame)
+        
+        // Run TFLite model
+        val detections = runDroneDetectionModel(processed)
+        
+        return DroneVisualDetection(
+            detected = detections.isNotEmpty(),
+            boundingBoxes = detections.map { it.boundingBox },
+            confidences = detections.map { it.confidence },
+            droneTypes = detections.map { classifyDroneVisual(it) }
+        )
+    }
+    
+    /**
+     * Fuse all detection methods for best accuracy
+     */
+    fun fuseDroneDetections(
+        rf: DroneRfDetection?,
+        acoustic: DroneAcousticDetection?,
+        visual: DroneVisualDetection?
+    ): FusedDroneDetection {
+        val rfScore = rf?.let { if (it.detected) 0.8f else 0f } ?: 0f
+        val acousticScore = acoustic?.confidence ?: 0f
+        val visualScore = visual?.let { 
+            if (it.detected) it.confidences.maxOrNull() ?: 0f else 0f 
+        } ?: 0f
+        
+        // Weighted fusion
+        val fusedScore = rfScore * 0.4f + acousticScore * 0.3f + visualScore * 0.3f
+        
+        // Distance estimation (prefer visual > acoustic > RF)
+        val distance = visual?.estimatedDistance 
+            ?: acoustic?.estimatedDistance 
+            ?: rf?.strongestSignal?.estimatedDistance
+        
+        return FusedDroneDetection(
+            detected = fusedScore > FUSED_DETECTION_THRESHOLD,
+            confidence = fusedScore,
+            estimatedDistance = distance,
+            droneType = determineMostLikelyType(rf, visual),
+            detectionSources = listOfNotNull(
+                if (rfScore > 0) "RF" else null,
+                if (acousticScore > 0) "ACOUSTIC" else null,
+                if (visualScore > 0) "VISUAL" else null
+            )
+        )
+    }
+    
+    companion object {
+        const val DRONE_ACOUSTIC_THRESHOLD = 0.6f
+        const val FUSED_DETECTION_THRESHOLD = 0.5f
+    }
+}
+
+enum class DroneType {
+    DJI_MAVIC,
+    DJI_PHANTOM,
+    DJI_MINI,
+    DJI_TELLO,
+    DJI_OTHER,
+    PARROT_ANAFI,
+    PARROT_OTHER,
+    SKYDIO,
+    AUTEL,
+    UNKNOWN
+}
+
+data class DroneRfSignature(
+    val ssid: String,
+    val bssid: String,
+    val rssi: Int,
+    val frequency: Int,
+    val droneType: DroneType,
+    val estimatedDistance: Float,
+    val confidence: Float
+)
+
+data class DroneRfDetection(
+    val detected: Boolean,
+    val signatures: List<DroneRfSignature>,
+    val strongestSignal: DroneRfSignature?
+)
+
+data class DroneAcousticDetection(
+    val detected: Boolean,
+    val confidence: Float,
+    val estimatedDistance: Float?,
+    val estimatedDirection: Float?,
+    val frequencyProfile: FloatArray
+)
+
+data class DroneVisualDetection(
+    val detected: Boolean,
+    val boundingBoxes: List<RectF>,
+    val confidences: List<Float>,
+    val droneTypes: List<DroneType>,
+    val estimatedDistance: Float? = null
+)
+
+data class FusedDroneDetection(
+    val detected: Boolean,
+    val confidence: Float,
+    val estimatedDistance: Float?,
+    val droneType: DroneType?,
+    val detectionSources: List<String>
+)
+```
+
+---
+
+### 17.7 Auto-Maximize Device Capabilities
+
+The system automatically detects and enables maximum capabilities for each device.
+
+```kotlin
+/**
+ * Auto-Maximize System
+ * Automatically detects and enables all available capabilities
+ * Adapts to device hardware for optimal performance
+ */
+class AutoMaximizer(private val context: Context) {
+    
+    /**
+     * Comprehensive capability detection
+     * Runs at app startup and caches results
+     */
+    fun detectAllCapabilities(): DeviceCapabilityProfile {
+        val profile = DeviceCapabilityProfile(
+            // Basic sensors
+            hasWifi = checkWifiCapability(),
+            hasBluetooth = checkBluetoothCapability(),
+            hasMicrophone = checkMicrophoneCapability(),
+            hasCamera = checkCameraCapability(),
+            
+            // Advanced capabilities
+            wifiRttSupported = checkWifiRttCapability(),
+            wifiAwareSupported = checkWifiAwareCapability(),
+            bluetooth5Supported = checkBluetooth5Capability(),
+            bleCodedPhySupported = checkBleCodedPhyCapability(),
+            bleDirectionFinding = checkBleDirectionFinding(),
+            uwbSupported = checkUwbCapability(),
+            
+            // Audio capabilities
+            ultrasonicSupported = checkUltrasonicCapability(),
+            multiMicrophoneSupported = checkMultiMicCapability(),
+            noiseSuppression = checkNoiseSuppressionCapability(),
+            
+            // Camera capabilities
+            cameraResolution = getCameraMaxResolution(),
+            camera60fpsSupported = check60fpsCapability(),
+            infraredCamera = checkInfraredCamera(),
+            depthCamera = checkDepthCamera(),
+            
+            // Processing power
+            cpuCores = Runtime.getRuntime().availableProcessors(),
+            ramMb = getAvailableRam(),
+            gpuAcceleration = checkGpuAcceleration(),
+            nnApiSupported = checkNnApiSupport(),
+            
+            // Android version features
+            androidVersion = Build.VERSION.SDK_INT,
+            hasBackgroundLocationAccess = checkBackgroundLocation()
+        )
+        
+        return profile
+    }
+    
+    /**
+     * Create optimal configuration based on device capabilities
+     */
+    fun createOptimalConfiguration(profile: DeviceCapabilityProfile): OptimalConfig {
+        val sensors = mutableSetOf<SensorConfig>()
+        
+        // WiFi configuration
+        if (profile.hasWifi) {
+            sensors.add(SensorConfig.Wifi(
+                useRtt = profile.wifiRttSupported,
+                useAware = profile.wifiAwareSupported,
+                scanInterval = if (profile.cpuCores >= 4) 500L else 1000L
+            ))
+        }
+        
+        // Bluetooth configuration
+        if (profile.hasBluetooth) {
+            sensors.add(SensorConfig.Bluetooth(
+                useLongRange = profile.bleCodedPhySupported,
+                useDirectionFinding = profile.bleDirectionFinding,
+                scanMode = if (profile.cpuCores >= 4) 
+                    BleScanMode.LOW_LATENCY else BleScanMode.BALANCED
+            ))
+        }
+        
+        // Audio configuration
+        if (profile.hasMicrophone) {
+            sensors.add(SensorConfig.Audio(
+                useUltrasonic = profile.ultrasonicSupported,
+                useFmcw = profile.cpuCores >= 4 && profile.ultrasonicSupported,
+                useBeamforming = profile.multiMicrophoneSupported,
+                sampleRate = if (profile.ultrasonicSupported) 48000 else 44100,
+                fftSize = if (profile.cpuCores >= 4) 4096 else 2048
+            ))
+        }
+        
+        // Camera configuration
+        if (profile.hasCamera) {
+            sensors.add(SensorConfig.Camera(
+                resolution = calculateOptimalResolution(profile),
+                frameRate = if (profile.camera60fpsSupported && profile.cpuCores >= 6) 30 else 15,
+                useDepth = profile.depthCamera,
+                useInfrared = profile.infraredCamera,
+                useOpticalFlow = profile.cpuCores >= 4
+            ))
+        }
+        
+        // UWB configuration
+        if (profile.uwbSupported) {
+            sensors.add(SensorConfig.Uwb(
+                enabled = true,
+                maxRange = 50f,
+                updateRate = 10
+            ))
+        }
+        
+        // ML configuration
+        val mlConfig = MlConfig(
+            useGpuAcceleration = profile.gpuAcceleration,
+            useNnApi = profile.nnApiSupported,
+            modelComplexity = when {
+                profile.cpuCores >= 8 && profile.ramMb >= 6000 -> ModelComplexity.HIGH
+                profile.cpuCores >= 4 && profile.ramMb >= 4000 -> ModelComplexity.MEDIUM
+                else -> ModelComplexity.LOW
+            }
+        )
+        
+        // Fusion configuration
+        val fusionConfig = FusionConfig(
+            updateRateHz = when {
+                profile.cpuCores >= 8 -> 20
+                profile.cpuCores >= 4 -> 10
+                else -> 5
+            },
+            maxTargets = when {
+                profile.ramMb >= 6000 -> 20
+                profile.ramMb >= 4000 -> 12
+                else -> 6
+            },
+            useKalmanFilter = profile.cpuCores >= 4,
+            useParticleFilter = profile.cpuCores >= 6
+        )
+        
+        return OptimalConfig(
+            sensors = sensors,
+            ml = mlConfig,
+            fusion = fusionConfig,
+            tier = calculateDeviceTier(profile),
+            estimatedRange = estimateMaxRange(profile),
+            batteryImpact = estimateBatteryImpact(profile, sensors)
+        )
+    }
+    
+    /**
+     * Calculate device tier based on capabilities
+     */
+    private fun calculateDeviceTier(profile: DeviceCapabilityProfile): DeviceTier {
+        var score = 0
+        
+        // Basic features (Tier 1 baseline)
+        if (profile.hasWifi) score += 10
+        if (profile.hasBluetooth) score += 10
+        if (profile.hasMicrophone) score += 10
+        if (profile.hasCamera) score += 10
+        
+        // Advanced features (Tier 2)
+        if (profile.uwbSupported) score += 30
+        if (profile.wifiRttSupported) score += 15
+        if (profile.bleCodedPhySupported) score += 10
+        if (profile.depthCamera) score += 10
+        
+        // High-end features (Tier 3)
+        if (profile.bleDirectionFinding) score += 20
+        if (profile.infraredCamera) score += 15
+        if (profile.multiMicrophoneSupported) score += 10
+        
+        // Processing power bonus
+        if (profile.cpuCores >= 8) score += 10
+        if (profile.gpuAcceleration) score += 10
+        if (profile.nnApiSupported) score += 5
+        
+        return when {
+            score >= 100 -> DeviceTier.TIER_3_ADVANCED
+            score >= 60 -> DeviceTier.TIER_2_UWB
+            score >= 30 -> DeviceTier.TIER_1_STANDARD
+            else -> DeviceTier.TIER_0_BASIC
+        }
+    }
+    
+    /**
+     * Estimate maximum detection range based on capabilities
+     */
+    private fun estimateMaxRange(profile: DeviceCapabilityProfile): RangeEstimate {
+        var maxRange = 5f // Base range
+        var throughWallRange = 0f
+        
+        if (profile.uwbSupported) {
+            maxRange = maxOf(maxRange, 50f)
+            throughWallRange = maxOf(throughWallRange, 10f)
+        }
+        
+        if (profile.wifiRttSupported) {
+            maxRange = maxOf(maxRange, 20f)
+            throughWallRange = maxOf(throughWallRange, 15f)
+        }
+        
+        if (profile.bleCodedPhySupported) {
+            maxRange = maxOf(maxRange, 30f)
+        }
+        
+        if (profile.hasWifi) {
+            throughWallRange = maxOf(throughWallRange, 8f) // WiFi CSI
+        }
+        
+        if (profile.ultrasonicSupported) {
+            maxRange = maxOf(maxRange, 12f) // FMCW sonar
+        }
+        
+        return RangeEstimate(
+            lineOfSight = maxRange,
+            throughWall = throughWallRange,
+            optimalConditions = maxRange * 1.5f
+        )
+    }
+    
+    /**
+     * Runtime capability monitoring and adjustment
+     */
+    fun monitorAndAdjust(
+        currentConfig: OptimalConfig,
+        metrics: PerformanceMetrics
+    ): ConfigAdjustment {
+        val adjustments = mutableListOf<Adjustment>()
+        
+        // CPU overload - reduce update rates
+        if (metrics.cpuUsage > 80) {
+            adjustments.add(Adjustment.ReduceUpdateRate(0.7f))
+        }
+        
+        // Memory pressure - reduce max targets
+        if (metrics.memoryUsage > 85) {
+            adjustments.add(Adjustment.ReduceMaxTargets(0.5f))
+        }
+        
+        // Battery critical - switch to low power sensors only
+        if (metrics.batteryLevel < 15) {
+            adjustments.add(Adjustment.LowPowerMode)
+        }
+        
+        // Thermal throttling - reduce sensor activity
+        if (metrics.thermalState == ThermalState.CRITICAL) {
+            adjustments.add(Adjustment.ThermalThrottle)
+        }
+        
+        return ConfigAdjustment(
+            shouldAdjust = adjustments.isNotEmpty(),
+            adjustments = adjustments
+        )
+    }
+}
+
+data class DeviceCapabilityProfile(
+    // Basic sensors
+    val hasWifi: Boolean,
+    val hasBluetooth: Boolean,
+    val hasMicrophone: Boolean,
+    val hasCamera: Boolean,
+    
+    // WiFi advanced
+    val wifiRttSupported: Boolean,
+    val wifiAwareSupported: Boolean,
+    
+    // Bluetooth advanced
+    val bluetooth5Supported: Boolean,
+    val bleCodedPhySupported: Boolean,
+    val bleDirectionFinding: Boolean,
+    
+    // UWB
+    val uwbSupported: Boolean,
+    
+    // Audio
+    val ultrasonicSupported: Boolean,
+    val multiMicrophoneSupported: Boolean,
+    val noiseSuppression: Boolean,
+    
+    // Camera
+    val cameraResolution: Size,
+    val camera60fpsSupported: Boolean,
+    val infraredCamera: Boolean,
+    val depthCamera: Boolean,
+    
+    // Processing
+    val cpuCores: Int,
+    val ramMb: Int,
+    val gpuAcceleration: Boolean,
+    val nnApiSupported: Boolean,
+    
+    // Android
+    val androidVersion: Int,
+    val hasBackgroundLocationAccess: Boolean
+)
+
+enum class DeviceTier {
+    TIER_0_BASIC,      // Minimal features
+    TIER_1_STANDARD,   // All basic sensors
+    TIER_2_UWB,        // UWB + advanced features
+    TIER_3_ADVANCED    // All features including direction finding
+}
+
+sealed class SensorConfig {
+    data class Wifi(
+        val useRtt: Boolean,
+        val useAware: Boolean,
+        val scanInterval: Long
+    ) : SensorConfig()
+    
+    data class Bluetooth(
+        val useLongRange: Boolean,
+        val useDirectionFinding: Boolean,
+        val scanMode: BleScanMode
+    ) : SensorConfig()
+    
+    data class Audio(
+        val useUltrasonic: Boolean,
+        val useFmcw: Boolean,
+        val useBeamforming: Boolean,
+        val sampleRate: Int,
+        val fftSize: Int
+    ) : SensorConfig()
+    
+    data class Camera(
+        val resolution: Size,
+        val frameRate: Int,
+        val useDepth: Boolean,
+        val useInfrared: Boolean,
+        val useOpticalFlow: Boolean
+    ) : SensorConfig()
+    
+    data class Uwb(
+        val enabled: Boolean,
+        val maxRange: Float,
+        val updateRate: Int
+    ) : SensorConfig()
+}
+
+enum class BleScanMode {
+    LOW_POWER,
+    BALANCED,
+    LOW_LATENCY
+}
+
+enum class ModelComplexity {
+    LOW,
+    MEDIUM,
+    HIGH
+}
+
+data class MlConfig(
+    val useGpuAcceleration: Boolean,
+    val useNnApi: Boolean,
+    val modelComplexity: ModelComplexity
+)
+
+data class FusionConfig(
+    val updateRateHz: Int,
+    val maxTargets: Int,
+    val useKalmanFilter: Boolean,
+    val useParticleFilter: Boolean
+)
+
+data class OptimalConfig(
+    val sensors: Set<SensorConfig>,
+    val ml: MlConfig,
+    val fusion: FusionConfig,
+    val tier: DeviceTier,
+    val estimatedRange: RangeEstimate,
+    val batteryImpact: BatteryImpact
+)
+
+data class RangeEstimate(
+    val lineOfSight: Float,
+    val throughWall: Float,
+    val optimalConditions: Float
+)
+
+data class BatteryImpact(
+    val estimatedDrainPerHour: Float,
+    val estimatedRuntime: Float
+)
+
+sealed class Adjustment {
+    data class ReduceUpdateRate(val factor: Float) : Adjustment()
+    data class ReduceMaxTargets(val factor: Float) : Adjustment()
+    object LowPowerMode : Adjustment()
+    object ThermalThrottle : Adjustment()
+}
+
+data class ConfigAdjustment(
+    val shouldAdjust: Boolean,
+    val adjustments: List<Adjustment>
+)
+```
+
+---
+
+### 17.8 Extended Development Roadmap for Range Improvement
+
+#### Phase 9: Extended Range Implementation (Weeks 23-28)
+
+##### Week 23-24: WiFi CSI/RTT
+- [ ] Implement WiFi RTT ranging (Android 9+)
+- [ ] Add RSSI variance analysis for through-wall detection
+- [ ] Implement multipath analysis for distance estimation
+- [ ] Add breathing detection via WiFi signal analysis
+- [ ] Test range: Target 10-15m through walls
+
+##### Week 25-26: Advanced Audio Sonar
+- [ ] Implement FMCW chirp generation
+- [ ] Add matched filter processing for echoes
+- [ ] Implement Doppler shift detection
+- [ ] Add multi-microphone beamforming (where available)
+- [ ] Test range: Target 10-15m line of sight
+
+##### Week 27-28: Bluetooth 5.0+ Long Range
+- [ ] Implement Coded PHY scanning
+- [ ] Add extended advertising support
+- [ ] Implement RSSI gradient direction finding
+- [ ] Add device movement correlation for angles
+- [ ] Test range: Target 30-50m
+
+#### Phase 10: Through-Wall Detection (Weeks 29-32)
+
+##### Week 29-30: WiFi Through-Wall
+- [ ] Implement CSI-based presence detection
+- [ ] Add wall attenuation compensation
+- [ ] Implement multi-AP triangulation
+- [ ] Add movement pattern classification
+- [ ] Test: Detect presence through drywall at 5-10m
+
+##### Week 31-32: Advanced Through-Wall
+- [ ] Implement breathing detection through walls
+- [ ] Add walking gait recognition
+- [ ] Implement room occupancy counting
+- [ ] Add position estimation using multiple APs
+- [ ] Test: Detect presence through concrete at 3-5m
+
+#### Phase 11: UAV/Drone Detection (Weeks 33-36)
+
+##### Week 33-34: RF-Based Drone Detection
+- [ ] Implement drone WiFi signature database
+- [ ] Add drone controller detection
+- [ ] Implement frequency hopping detection
+- [ ] Add drone type classification
+- [ ] Test: Detect consumer drones at 100m+
+
+##### Week 35-36: Multi-Modal Drone Detection
+- [ ] Implement acoustic drone detection
+- [ ] Add propeller frequency analysis
+- [ ] Implement visual drone detection ML model
+- [ ] Add sensor fusion for drone tracking
+- [ ] Test: Fused detection with 90%+ accuracy
+
+#### Phase 12: Auto-Maximize & Optimization (Weeks 37-40)
+
+##### Week 37-38: Capability Detection
+- [ ] Implement comprehensive hardware detection
+- [ ] Add runtime capability monitoring
+- [ ] Implement adaptive configuration
+- [ ] Add performance profiling
+- [ ] Test: Correct tier assignment for 20+ device models
+
+##### Week 39-40: Optimization & Polish
+- [ ] Implement battery-aware range optimization
+- [ ] Add thermal management
+- [ ] Implement background scanning optimization
+- [ ] Add range calibration wizard
+- [ ] Test: Optimal performance across all tiers
+
+---
+
+*Nova BioRadar - All-in-One Autonomous Development Guide v1.1*
