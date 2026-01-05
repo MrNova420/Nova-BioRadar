@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Primary Colors - Radar Green Theme -->
+    <color name="radar_green">#FF00FF00</color>
+    <color name="radar_green_dark">#FF00CC00</color>
+    <color name="radar_green_light">#FF33FF33</color>
+    <color name="radar_green_transparent">#8000FF00</color>
+    
+    <!-- Background Colors -->
+    <color name="background_dark">#FF0A0A0A</color>
+    <color name="background_radar">#FF0D1117</color>
+    <color name="surface_dark">#FF161B22</color>
+    
+    <!-- Target Colors -->
+    <color name="target_high_confidence">#FFFF0000</color>
+    <color name="target_medium_confidence">#FFFFFF00</color>
+    <color name="target_low_confidence">#FF00FF00</color>
+    <color name="target_unknown">#FFFFFFFF</color>
+    <color name="target_uwb">#FF00BFFF</color>
+    
+    <!-- Alert Colors -->
+    <color name="alert_red">#FFFF0000</color>
+    <color name="alert_yellow">#FFFFCC00</color>
+    <color name="alert_green">#FF00FF00</color>
+    <color name="alert_blue">#FF00BFFF</color>
+    
+    <!-- Zone Status Colors -->
+    <color name="zone_clear">#FF00FF00</color>
+    <color name="zone_possible">#FFFFFF00</color>
+    <color name="zone_presence">#FFFF0000</color>
+    <color name="zone_unknown">#FF808080</color>
+    
+    <!-- UI Colors -->
+    <color name="text_primary">#FFFFFFFF</color>
+    <color name="text_secondary">#FFB0B0B0</color>
+    <color name="text_accent">#FF00FF00</color>
+    <color name="divider">#FF2D333B</color>
+    
+    <!-- Button Colors -->
+    <color name="button_primary">#FF00CC00</color>
+    <color name="button_secondary">#FF2D333B</color>
+    <color name="button_danger">#FFFF4444</color>
+    
+    <!-- Sensor Colors -->
+    <color name="sensor_wifi">#FF4FC3F7</color>
+    <color name="sensor_bluetooth">#FF2196F3</color>
+    <color name="sensor_sonar">#FF9C27B0</color>
+    <color name="sensor_camera">#FFFF9800</color>
+    <color name="sensor_uwb">#FF00BCD4</color>
+    
+    <!-- Grid Colors -->
+    <color name="grid_line">#FF1A3A1A</color>
+    <color name="grid_line_major">#FF2A5A2A</color>
+    <color name="sweep_line">#FF00FF00</color>
+    <color name="sweep_gradient_start">#8000FF00</color>
+    <color name="sweep_gradient_end">#0000FF00</color>
+</resources>
