@@ -155,6 +155,8 @@ private fun RadarHeader(
                                     OperatingMode.SEARCH -> Icons.Default.Search
                                     OperatingMode.LAB -> Icons.Default.Science
                                     OperatingMode.SENTRY -> Icons.Default.Shield
+                                    OperatingMode.ULTIMATE -> Icons.Default.Bolt
+                                    OperatingMode.BLACKOUT -> Icons.Default.PowerOff
                                 },
                                 contentDescription = null
                             )

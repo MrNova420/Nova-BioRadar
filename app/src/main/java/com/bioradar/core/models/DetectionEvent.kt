@@ -27,7 +27,9 @@ enum class OperatingMode {
     STEALTH,     // Silent operation, no emissions
     SEARCH,      // Aggressive scanning, high accuracy
     LAB,         // Debug mode with raw sensor data
-    SENTRY       // Automated perimeter protection
+    SENTRY,      // Automated perimeter protection
+    ULTIMATE,    // Auto-maximize all capabilities (NEW)
+    BLACKOUT     // Complete off-grid operation (NEW)
 }
 
 /**

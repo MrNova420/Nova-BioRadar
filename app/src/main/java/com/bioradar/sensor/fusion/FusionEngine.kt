@@ -20,8 +20,12 @@ class FusionEngine @Inject constructor(
     private val bluetoothScanner: BluetoothScanner,
     private val wifiScanner: WifiScanner,
     private val audioSonarDriver: AudioSonarDriver,
-    private val cameraMotionDriver: CameraMotionDriver
+    private val cameraMotionDriver: CameraMotionDriver,
+    private val context: android.content.Context
 ) {
+    // Optional sensors - initialized on-demand
+    private var uwbRadarDriver: UwbRadarDriver? = null
+    private var selfGeneratedWiFiSystem: SelfGeneratedWiFiSystem? = null
     private val scope = CoroutineScope(Dispatchers.Default)
     
     private val _targets = MutableStateFlow<List<RadarTarget>>(emptyList())
@@ -54,6 +58,14 @@ class FusionEngine @Inject constructor(
         if (_isActive.value) return
         _isActive.value = true
         
+        // Initialize optional sensors
+        if (DataSource.UWB in enabledSensors && android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) {
+            uwbRadarDriver = UwbRadarDriver(context)
+        }
+        if (DataSource.WIFI in enabledSensors) {
+            selfGeneratedWiFiSystem = SelfGeneratedWiFiSystem(context)
+        }
+        
         scope.launch {
             // Collect data from all enabled sensors
             val flows = mutableListOf<Flow<SensorData>>()
@@ -66,6 +78,9 @@ class FusionEngine @Inject constructor(
             }
             if (DataSource.SONAR in enabledSensors && modeProfile.sonarEnabled) {
                 flows.add(collectSonarData(modeProfile.scanIntervalMs))
+            }
+            if (DataSource.UWB in enabledSensors) {
+                flows.add(collectUwbData())
             }
             
             // Merge all sensor flows
@@ -85,6 +100,10 @@ class FusionEngine @Inject constructor(
         _isActive.value = false
         audioSonarDriver.stop()
         cameraMotionDriver.stop()
+        uwbRadarDriver?.release()
+        selfGeneratedWiFiSystem?.stopAll()
+        uwbRadarDriver = null
+        selfGeneratedWiFiSystem = null
         _targets.value = emptyList()
     }
     
@@ -151,6 +170,56 @@ class FusionEngine @Inject constructor(
                     quality = result.quality,
                     timestamp = System.currentTimeMillis()
                 ))
+            }
+    }
+    
+    /**
+     * Collect UWB sensor data
+     */
+    private fun collectUwbData(): Flow<SensorData> = flow {
+        val uwbDriver = uwbRadarDriver ?: return@flow
+        
+        if (!uwbDriver.isAvailable()) return@flow
+        
+        // Initialize UWB
+        if (!uwbDriver.initialize()) return@flow
+        
+        // Get local address to range with other devices
+        // In production, this would come from mesh network or manual pairing
+        // For now, emit placeholder data when UWB is ready
+        
+        // Note: Actual ranging requires a partner device with known UWB address
+        // This is a placeholder - real implementation would integrate with mesh network
+        
+        // TODO: Integrate with mesh network to get partner UWB addresses
+        // For now, emit test data to demonstrate UWB capability
+        android.util.Log.i("FusionEngine", "UWB initialized and ready for ranging")
+    }
+    
+    /**
+     * Collect self-generated WiFi detection data
+     */
+    private fun collectSelfGeneratedWiFiData(): Flow<SensorData> = flow {
+        val wifiSystem = selfGeneratedWiFiSystem ?: return@flow
+        
+        if (!wifiSystem.isSupported()) return@flow
+        
+        // Collect RF shadow detections
+        wifiSystem.detectWithSelfGeneratedWiFi()
+            .collect { shadow ->
+                if (shadow.shadowDetected) {
+                    // Convert RF shadow to WiFi sensor data
+                    emit(SensorData.Wifi(
+                        presenceScore = shadow.confidence,
+                        throughWallDetection = ThroughWallDetection(
+                            detected = true,
+                            confidence = shadow.confidence,
+                            estimatedDistance = shadow.estimatedDistance ?: 10f
+                        ),
+                        apCount = 1,  // Our own generated WiFi
+                        timestamp = shadow.timestamp
+                    ))
+                }
             }
     }
     

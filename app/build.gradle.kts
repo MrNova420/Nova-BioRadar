@@ -119,6 +119,10 @@ dependencies {
     // JSON serialization
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.6.2")
     
+    // UWB (Ultra-Wideband) for precise ranging (Android 12+)
+    implementation("androidx.core:core-uwb:1.0.0-alpha08")
+    implementation("androidx.core:core-uwb-rxjava3:1.0.0-alpha08")
+    
     // Testing
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.7.3")
