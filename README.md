@@ -8,7 +8,22 @@
 [![Jetpack Compose](https://img.shields.io/badge/Jetpack%20Compose-Latest-purple.svg)](https://developer.android.com/jetpack/compose)
 [![License](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Build](https://img.shields.io/badge/build-ready-brightgreen.svg)]()
-[![Code](https://img.shields.io/badge/code-16.8k%20lines-blue.svg)]()
+[![Code](https://img.shields.io/badge/code-18k%20lines-blue.svg)]()
+
+---
+
+## 🚀 Quick Start
+
+**New user?** Get started in 5 minutes!
+
+👉 **[Read the Quick Start Guide →](QUICKSTART.md)**
+
+**Already know what you're doing?**
+1. Download the [latest release APK](https://github.com/MrNova420/Nova-BioRadar/releases)
+2. Install on your Android device
+3. Grant permissions
+4. Tap **[SCAN]** button
+5. Done! Start detecting presence.
 
 ---
 
@@ -248,6 +263,68 @@ Five sub-profiles for different scenarios:
 - 8-sector directional detection
 - Walking pattern recognition
 
+## 📖 How to Use
+
+### For First-Time Users
+
+**Complete step-by-step instructions:** See **[QUICKSTART.md](QUICKSTART.md)** for detailed guide.
+
+### Quick Reference
+
+#### 1️⃣ Basic Detection
+```
+1. Open app (Radar tab)
+2. Tap [SCAN] button
+3. Green dots appear when presence detected
+4. That's it!
+```
+
+#### 2️⃣ One-Button Optimization (Easiest!)
+```
+1. Settings tab → "Advanced Modes" card
+2. Tap "Activate Ultimate Mode"
+3. App automatically optimizes everything
+4. Get maximum performance instantly
+```
+
+#### 3️⃣ Blackout Mode (Zero Infrastructure)
+```
+1. Settings → Advanced Modes
+2. Choose profile (Maximum Range / Balanced / etc.)
+3. Tap "Activate Blackout Mode"
+4. Works with NO WiFi, cellular, or internet!
+```
+
+#### 4️⃣ Perimeter Guard
+```
+1. Guard tab
+2. Tap [CALIBRATE] (in empty area)
+3. Tap [START GUARD]
+4. Get alerts when presence enters zone
+```
+
+#### 5️⃣ Multi-Device Mesh
+```
+1. Mesh tab on all devices
+2. Tap [START MESH]
+3. Devices auto-connect
+4. Extended range and accuracy!
+```
+
+### Operating Modes Quick Reference
+
+| Mode | Use When | Battery |
+|------|----------|---------|
+| **Normal** | Everyday scanning | 6-8hrs |
+| **Ultimate** ⭐ | Want best performance (auto-optimizes) | 6-10hrs |
+| **Blackout** ⭐ | No infrastructure / emergency | 6-24+hrs |
+| **Guard** | Monitoring fixed area | 8-12hrs |
+| **Emergency** | Low battery situation | 24-48hrs |
+| **Stealth** | Silent, invisible operation | 12-20hrs |
+| **Search** | Maximum sensitivity needed | 3-4hrs |
+
+**💡 Pro Tip**: New users should start with **Ultimate Mode** - it automatically configures everything for optimal performance on your device!
+
 ## 🤝 Contributing
 
 Contributions are welcome! Please read the [DEVELOPMENT_GUIDE.md](DEVELOPMENT_GUIDE.md) for detailed implementation guidelines.
@@ -272,8 +349,38 @@ BioRadar is designed with privacy first:
 
 ## 📚 Documentation
 
-- [Full Documentation](DOCUMENTATION.md)
-- [Development Guide](DEVELOPMENT_GUIDE.md)
+- **[Quick Start Guide](QUICKSTART.md)** - Get started in 5 minutes! 🚀
+- **[Full Documentation](DOCUMENTATION.md)** - Complete technical docs
+- **[Development Guide](DEVELOPMENT_GUIDE.md)** - For contributors
+- **[Build Status](BUILD_STATUS.md)** - Build information
+- **[Implementation Status](IMPLEMENTATION_STATUS.md)** - Feature tracking (70% complete)
+
+## 🆘 Troubleshooting
+
+### Common Issues
+
+**"No targets detected"**
+- ✅ Check permissions granted (Location, Camera, Mic)
+- ✅ Ensure scan is running ([SCAN] button should show "STOP")
+- ✅ Enable more sensors in Settings
+- ✅ Try Ultimate Mode for auto-optimization
+
+**"Permission denied" errors**
+- Go to: Android Settings → Apps → Nova BioRadar → Permissions
+- Enable all permissions, especially Location ("Allow all the time")
+
+**Poor detection accuracy**
+- Calibrate in empty room: Stand alone, tap [CALIBRATE]
+- Reduce max range to 15m in Settings
+- Enable Ultimate Mode
+- Keep phone still during scanning
+
+**App crashes or freezes**
+- Clear app cache: Settings → Apps → Nova BioRadar → Storage → Clear Cache
+- Restart app
+- If persists, reinstall
+
+**More help**: See **[QUICKSTART.md](QUICKSTART.md)** troubleshooting section for detailed solutions.
 
 ---
 
