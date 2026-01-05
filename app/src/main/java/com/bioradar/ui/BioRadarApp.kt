@@ -20,6 +20,7 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
+import com.bioradar.ui.screens.AdvancedModesScreen
 import com.bioradar.ui.screens.GuardScreen
 import com.bioradar.ui.screens.MeshScreen
 import com.bioradar.ui.screens.RadarScreen
@@ -127,7 +128,18 @@ fun BioRadarApp() {
             composable(Screen.Radar.route) { RadarScreen() }
             composable(Screen.Guard.route) { GuardScreen() }
             composable(Screen.Mesh.route) { MeshScreen() }
-            composable(Screen.Settings.route) { SettingsScreen() }
+            composable(Screen.Settings.route) { 
+                SettingsScreen(
+                    onNavigateToAdvancedModes = {
+                        navController.navigate("advanced_modes")
+                    }
+                )
+            }
+            composable("advanced_modes") {
+                AdvancedModesScreen(
+                    onBack = { navController.navigateUp() }
+                )
+            }
         }
     }
 }
