@@ -28,25 +28,19 @@ import kotlinx.coroutines.launch
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AdvancedModesScreen(
-    ultimateMode: UltimateMode,
-    blackoutMode: BlackoutMode,
+    viewModel: com.bioradar.ui.viewmodels.AdvancedModesViewModel = androidx.hilt.navigation.compose.hiltViewModel(),
     onBack: () -> Unit
 ) {
     val scope = rememberCoroutineScope()
     val scrollState = rememberScrollState()
     
-    // State for Ultimate Mode
-    val ultimateModeConfig by ultimateMode.configuration.collectAsState()
-    val ultimateModeActive by ultimateMode.isActive.collectAsState()
-    
-    // State for Blackout Mode
-    val blackoutModeStatus by blackoutMode.status.collectAsState()
-    
-    var selectedBlackoutProfile by remember { 
-        mutableStateOf(BlackoutMode.BlackoutProfile.BALANCED) 
-    }
-    var showUltimateDetails by remember { mutableStateOf(false) }
-    var showBlackoutDetails by remember { mutableStateOf(false) }
+    // State from ViewModel
+    val ultimateModeConfig by viewModel.ultimateModeConfiguration.collectAsState()
+    val ultimateModeActive by viewModel.ultimateModeActive.collectAsState()
+    val blackoutModeStatus by viewModel.blackoutModeStatus.collectAsState()
+    val selectedBlackoutProfile by viewModel.selectedBlackoutProfile.collectAsState()
+    val showUltimateDetails by viewModel.showUltimateDetails.collectAsState()
+    val showBlackoutDetails by viewModel.showBlackoutDetails.collectAsState()
     
     Scaffold(
         topBar = {
@@ -76,15 +70,9 @@ fun AdvancedModesScreen(
                 isActive = ultimateModeActive,
                 config = ultimateModeConfig,
                 showDetails = showUltimateDetails,
-                onToggleDetails = { showUltimateDetails = !showUltimateDetails },
-                onActivate = {
-                    scope.launch {
-                        ultimateMode.activate()
-                    }
-                },
-                onDeactivate = {
-                    ultimateMode.deactivate()
-                }
+                onToggleDetails = { viewModel.toggleUltimateDetails() },
+                onActivate = { viewModel.activateUltimateMode() },
+                onDeactivate = { viewModel.deactivateUltimateMode() }
             )
             
             Divider()
@@ -94,16 +82,10 @@ fun AdvancedModesScreen(
                 status = blackoutModeStatus,
                 selectedProfile = selectedBlackoutProfile,
                 showDetails = showBlackoutDetails,
-                onToggleDetails = { showBlackoutDetails = !showBlackoutDetails },
-                onProfileChange = { selectedBlackoutProfile = it },
-                onActivate = {
-                    scope.launch {
-                        blackoutMode.activate(selectedBlackoutProfile)
-                    }
-                },
-                onDeactivate = {
-                    blackoutMode.deactivate()
-                }
+                onToggleDetails = { viewModel.toggleBlackoutDetails() },
+                onProfileChange = { viewModel.setBlackoutProfile(it) },
+                onActivate = { viewModel.activateBlackoutMode() },
+                onDeactivate = { viewModel.deactivateBlackoutMode() }
             )
         }
     }
